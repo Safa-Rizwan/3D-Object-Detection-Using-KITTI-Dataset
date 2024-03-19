@@ -515,7 +515,7 @@ class Dataset(torch_data.Dataset):
 
     if self.split == "train":
       #split_directory = os.path.join(root_dir, 'KITTI', 'ImageSets', split+ '.txt')
-      split_directory = '/data2/ImageSets/train.txt'
+      split_directory = '/home/ubuntu/safa/3D-Object-Detection-Using-KITTI-Dataset/data2/ImageSets/train.txt'
       self.image_id_list = [x.strip() for x in open(split_directory).readlines()]
     else:
       bin_files = glob.glob("%s/*.bin" % self.lidar_path) # using wild card pattern for matching
