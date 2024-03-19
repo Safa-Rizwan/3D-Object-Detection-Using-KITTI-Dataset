@@ -33,7 +33,7 @@ import torch.optim as optim
 #!pip install terminaltables
 from terminaltables import AsciiTable
 #!pip install mayavi
-import mayavi.mlab as mlab
+#import mayavi.mlab as mlab
 
 """# Complex Yolo - Constants"""
 
