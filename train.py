@@ -1512,7 +1512,7 @@ if __name__ == "__main__":
 
     # Initiate model
     model = Darknet(model_def, img_size=img_size).to(device)
-    model.load_state_dict(torch.load('model/model_stateV3'))
+    model.load_state_dict(torch.load('model_stateV3'))
     #model.load_state_dict(torch.load('/content/model_stateV3'))
 
     # Get dataloader
@@ -1611,579 +1611,579 @@ torch.save(model, 'entire_modelV4')
 
 ## Utilities
 """
-
-def inverse_yolo_target(targets, bc):
-    ntargets = 0
-    for i, t in enumerate(targets):
-        if t.sum(0):ntargets += 1
-
-    labels = np.zeros([ntargets, 8], dtype=np.float32)
-
-    n = 0
-    for t in targets:
-        if t.sum(0) == 0:
-            continue
-
-        c, y, x, w, l, im, re = t
-        z, h = -1.55, 1.5
-        if c == 1:
-            h = 1.8
-        elif c == 2:
-            h = 1.4
-
-        y = y * (bc["maxY"] - bc["minY"]) + bc["minY"]
-        x = x * (bc["maxX"] - bc["minX"]) + bc["minX"]
-        w = w * (bc["maxY"] - bc["minY"])
-        l = l * (bc["maxX"] - bc["minX"])
-
-        w -= 0.3
-        l -= 0.3
-
-        labels[n, :] = c, x, y, z, h, w, l, - np.arctan2(im, re) - 2*np.pi
-        n += 1
-
-    return labels
-def lidar_to_camera(x, y, z,V2C=None, R0=None, P2=None):
-	p = np.array([x, y, z, 1])
-	if V2C is None or R0 is None:
-		p = np.matmul(Tr_velo_to_cam, p)
-		p = np.matmul(R0, p)
-	else:
-		p = np.matmul(V2C, p)
-		p = np.matmul(R0, p)
-	p = p[0:3]
-	return tuple(p)
-
-def lidar_to_camera_box(boxes,V2C=None, R0=None, P2=None):
-	# (N, 7) -> (N, 7) x,y,z,h,w,l,r
-	ret = []
-	for box in boxes:
-		x, y, z, h, w, l, rz = box
-		(x, y, z), h, w, l, ry = lidar_to_camera(
-			x, y, z,V2C=V2C, R0=R0, P2=P2), h, w, l, -rz - np.pi / 2
-		#ry = angle_in_limit(ry)
-		ret.append([x, y, z, h, w, l, ry])
-	return np.array(ret).reshape(-1, 7)
-
-def project_to_image(pts_3d, P):
-    ''' Project 3d points to image plane.
-
-    Usage: pts_2d = projectToImage(pts_3d, P)
-      input: pts_3d: nx3 matrix
-             P:      3x4 projection matrix
-      output: pts_2d: nx2 matrix
-
-      P(3x4) dot pts_3d_extended(4xn) = projected_pts_2d(3xn)
-      => normalize projected_pts_2d(2xn)
-
-      <=> pts_3d_extended(nx4) dot P'(4x3) = projected_pts_2d(nx3)
-          => normalize projected_pts_2d(nx2)
-    '''
-    n = pts_3d.shape[0]
-    pts_3d_extend = np.hstack((pts_3d, np.ones((n,1))))
-    #print(('pts_3d_extend shape: ', pts_3d_extend.shape))
-    pts_2d = np.dot(pts_3d_extend, np.transpose(P)) # nx3
-    pts_2d[:,0] /= pts_2d[:,2]
-    pts_2d[:,1] /= pts_2d[:,2]
-    return pts_2d[:,0:2]
-
-def roty(t):
-    #Rotation about the y-axis.
-    c = np.cos(t)
-    s = np.sin(t)
-    return np.array([[c,  0,  s],
-                     [0,  1,  0],
-                     [-s, 0,  c]])
-
-def compute_box_3d(obj, P):
-    ''' Takes an object and a projection matrix (P) and projects the 3d
-        bounding box into the image plane.
-        Returns:
-            corners_2d: (8,2) array in left image coord.
-            corners_3d: (8,3) array in in rect camera coord.
-    '''
-    # compute rotational matrix around yaw axis
-    R = roty(obj.ry)
-
-    # 3d bounding box dimensions
-    l = obj.l
-    w = obj.w
-    h = obj.h
-
-    # 3d bounding box corners
-    x_corners = [l/2,l/2,-l/2,-l/2,l/2,l/2,-l/2,-l/2]
-    y_corners = [0,0,0,0,-h,-h,-h,-h]
-    z_corners = [w/2,-w/2,-w/2,w/2,w/2,-w/2,-w/2,w/2]
-
-    # rotate and translate 3d bounding box
-    corners_3d = np.dot(R, np.vstack([x_corners,y_corners,z_corners]))
-    #print corners_3d.shape
-    corners_3d[0,:] = corners_3d[0,:] + obj.t[0]
-    corners_3d[1,:] = corners_3d[1,:] + obj.t[1]
-    corners_3d[2,:] = corners_3d[2,:] + obj.t[2]
-    #print 'cornsers_3d: ', corners_3d
-    # only draw 3d bounding box for objs in front of the camera
-    if np.any(corners_3d[2,:]<0.1):
-        corners_2d = None
-        return corners_2d, np.transpose(corners_3d)
-
-    # project the 3d bounding box into the image plane
-    corners_2d = project_to_image(np.transpose(corners_3d), P)
-    #print 'corners_2d: ', corners_2d
-    return corners_2d, np.transpose(corners_3d)
-
-def read_labels_for_bevbox(objects):
-    bbox_selected = []
-    for obj in objects:
-        if obj.cls_id != -1:
-            bbox = []
-            bbox.append(obj.cls_id)
-            bbox.extend([obj.t[0], obj.t[1], obj.t[2], obj.h, obj.w, obj.l, obj.ry])
-            bbox_selected.append(bbox)
-
-    if (len(bbox_selected) == 0):
-        return np.zeros((1, 8), dtype=np.float32), True
-    else:
-        bbox_selected = np.array(bbox_selected).astype(np.float32)
-        return bbox_selected, False
-
-
-def camera_to_lidar(x, y, z, V2C=None,R0=None,P2=None):
-	p = np.array([x, y, z, 1])
-	if V2C is None or R0 is None:
-		p = np.matmul(R0_inv, p)
-		p = np.matmul(Tr_velo_to_cam_inv, p)
-	else:
-		R0_i = np.zeros((4,4))
-		R0_i[:3,:3] = R0
-		R0_i[3,3] = 1
-		p = np.matmul(np.linalg.inv(R0_i), p)
-		p = np.matmul(inverse_rigid_trans(V2C), p)
-	p = p[0:3]
-	return tuple(p)
-
-def camera_to_lidar_box(boxes, V2C=None, R0=None, P2=None):
-	# (N, 7) -> (N, 7) x,y,z,h,w,l,r
-	ret = []
-	for box in boxes:
-		x, y, z, h, w, l, ry = box
-		(x, y, z), h, w, l, rz = camera_to_lidar(
-			x, y, z,V2C=V2C, R0=R0, P2=P2), h, w, l, -ry - np.pi / 2
-		#rz = angle_in_limit(rz)
-		ret.append([x, y, z, h, w, l, rz])
-	return np.array(ret).reshape(-1, 7)
-
-
-#send parameters in bev image coordinates format
-def drawRotatedBox(img,x,y,w,l,yaw,color):
-    bev_corners = get_corners(x, y, w, l, yaw)
-    corners_int = bev_corners.reshape(-1, 1, 2).astype(int)
-    print(corners_int,corners_int.shape)
-    cv2.polylines(img, [corners_int], True, color, 2)
-    corners_int = bev_corners.reshape(-1, 2)
-    cv2.line(img, (int(corners_int[0, 0]), int(corners_int[0, 1])), (int(corners_int[3, 0]), int(corners_int[3, 1])), (255, 255, 0), 2)
-    #cv2.line(img, (corners_int[0, 0], corners_int[0, 1]), (corners_int[3, 0], corners_int[3, 1]), (255, 255, 0), 2)
-
-def draw_box_in_bev(rgb_map, target):
-    for j in range(50):
-        if(np.sum(target[j,1:]) == 0):continue
-        cls_id = int(target[j][0])
-        x = target[j][1] *  BEV_WIDTH
-        y = target[j][2] *  BEV_HEIGHT
-        w = target[j][3] *  BEV_WIDTH
-        l = target[j][4] *  BEV_HEIGHT
-        yaw = np.arctan2(target[j][5], target[j][6])
-        drawRotatedBox(rgb_map, x, y, w, l, yaw,  colors[cls_id])
-
-def rescale_boxes(boxes, current_dim, original_shape):
-    """ Rescales bounding boxes to the original shape """
-    orig_h, orig_w = original_shape
-    # The amount of padding that was added
-    pad_x = max(orig_h - orig_w, 0) * (current_dim / max(original_shape))
-    pad_y = max(orig_w - orig_h, 0) * (current_dim / max(original_shape))
-    # Image height and width after padding is removed
-    unpad_h = current_dim - pad_y
-    unpad_w = current_dim - pad_x
-    # Rescale bounding boxes to dimension of original image
-    boxes[:, 0] = ((boxes[:, 0] - pad_x // 2) / unpad_w) * orig_w
-    boxes[:, 1] = ((boxes[:, 1] - pad_y // 2) / unpad_h) * orig_h
-    boxes[:, 2] = ((boxes[:, 2] - pad_x // 2) / unpad_w) * orig_w
-    boxes[:, 3] = ((boxes[:, 3] - pad_y // 2) / unpad_h) * orig_h
-
-    return boxes
-def compute_orientation_3d(obj, P):
-    ''' Takes an object and a projection matrix (P) and projects the 3d
-        object orientation vector into the image plane.
-        Returns:
-            orientation_2d: (2,2) array in left image coord.
-            orientation_3d: (2,3) array in in rect camera coord.
-    '''
-
-    # compute rotational matrix around yaw axis
-    R = roty(obj.ry)
-
-    # orientation in object coordinate system
-    orientation_3d = np.array([[0.0, obj.l],[0,0],[0,0]])
-
-    # rotate and translate in camera coordinate system, project in image
-    orientation_3d = np.dot(R, orientation_3d)
-    orientation_3d[0,:] = orientation_3d[0,:] + obj.t[0]
-    orientation_3d[1,:] = orientation_3d[1,:] + obj.t[1]
-    orientation_3d[2,:] = orientation_3d[2,:] + obj.t[2]
-
-    # vector behind image plane?
-    if np.any(orientation_3d[2,:]<0.1):
-      orientation_2d = None
-      return orientation_2d, np.transpose(orientation_3d)
-
-    # project orientation into the image plane
-    orientation_2d = project_to_image(np.transpose(orientation_3d), P)
-    return orientation_2d, np.transpose(orientation_3d)
-
-def draw_projected_box3d(image, qs, color=(255,0,255), thickness=2):
-    ''' Draw 3d bounding box in image
-        qs: (8,3) array of vertices for the 3d box in following order:
-            1 -------- 0
-           /|         /|
-          2 -------- 3 .
-          | |        | |
-          . 5 -------- 4
-          |/         |/
-          6 -------- 7
-    '''
-    qs = qs.astype(np.int32)
-    for k in range(0,4):
-       # Ref: http://docs.enthought.com/mayavi/mayavi/auto/mlab_helper_functions.html
-       i,j=k,(k+1)%4
-       # use LINE_AA for opencv3
-       cv2.line(image, (qs[i,0],qs[i,1]), (qs[j,0],qs[j,1]), color, thickness)
-
-       i,j=k+4,(k+1)%4 + 4
-       cv2.line(image, (qs[i,0],qs[i,1]), (qs[j,0],qs[j,1]), color, thickness)
-
-       i,j=k,k+4
-       cv2.line(image, (qs[i,0],qs[i,1]), (qs[j,0],qs[j,1]), color, thickness)
-    return image
-
-def draw_lidar_simple(pc, color=None):
-    ''' Draw lidar points. simplest set up. '''
-    fig = mlab.figure(figure=None, bgcolor=(0,0,0), fgcolor=None, engine=None, size=(1600, 1000))
-    if color is None: color = pc[:,2]
-    #draw points
-    mlab.points3d(pc[:,0], pc[:,1], pc[:,2], color, color=None, mode='point', colormap = 'gnuplot', scale_factor=1, figure=fig)
-    #draw origin
-    mlab.points3d(0, 0, 0, color=(1,1,1), mode='sphere', scale_factor=0.2)
-    #draw axis
-    axes=np.array([
-        [2.,0.,0.,0.],
-        [0.,2.,0.,0.],
-        [0.,0.,2.,0.],
-    ],dtype=np.float64)
-    mlab.plot3d([0, axes[0,0]], [0, axes[0,1]], [0, axes[0,2]], color=(1,0,0), tube_radius=None, figure=fig)
-    mlab.plot3d([0, axes[1,0]], [0, axes[1,1]], [0, axes[1,2]], color=(0,1,0), tube_radius=None, figure=fig)
-    mlab.plot3d([0, axes[2,0]], [0, axes[2,1]], [0, axes[2,2]], color=(0,0,1), tube_radius=None, figure=fig)
-    mlab.view(azimuth=180, elevation=70, focalpoint=[ 12.0909996 , -1.04700089, -2.03249991], distance=62.0, figure=fig)
-    return fig
-
-def draw_lidar(pc, color=None, fig1=None, bgcolor=(0,0,0), pts_scale=1, pts_mode='point', pts_color=None):
-    ''' Draw lidar points
-    Args:
-        pc: numpy array (n,3) of XYZ
-        color: numpy array (n) of intensity or whatever
-        fig: mayavi figure handler, if None create new one otherwise will use it
-    Returns:
-        fig: created or used fig
-    '''
-    #if fig1 is None: fig1 = mlab.figure(figure="point cloud", bgcolor=bgcolor, fgcolor=None, engine=None, size=(1600, 1000))
-
-    mlab.clf(figure=None)
-    if color is None: color = pc[:,2]
-    mlab.points3d(pc[:,0], pc[:,1], pc[:,2], color, color=pts_color, mode=pts_mode, colormap = 'gnuplot', scale_factor=pts_scale, figure=fig1)
-
-    #draw origin
-    mlab.points3d(0, 0, 0, color=(1,1,1), mode='sphere', scale_factor=0.2)
-
-    #draw axis
-    axes=np.array([
-        [2.,0.,0.,0.],
-        [0.,2.,0.,0.],
-        [0.,0.,2.,0.],
-    ],dtype=np.float64)
-
-    mlab.plot3d([0, axes[0,0]], [0, axes[0,1]], [0, axes[0,2]], color=(1,0,0), tube_radius=None, figure=fig1)
-    mlab.plot3d([0, axes[1,0]], [0, axes[1,1]], [0, axes[1,2]], color=(0,1,0), tube_radius=None, figure=fig1)
-    mlab.plot3d([0, axes[2,0]], [0, axes[2,1]], [0, axes[2,2]], color=(0,0,1), tube_radius=None, figure=fig1)
-
-    # draw fov (todo: update to real sensor spec.)
-    fov=np.array([  # 45 degree
-        [20., 20., 0.,0.],
-        [20.,-20., 0.,0.],
-    ],dtype=np.float64)
-
-    mlab.plot3d([0, fov[0,0]], [0, fov[0,1]], [0, fov[0,2]], color=(1,1,1), tube_radius=None, line_width=1, figure=fig1)
-    mlab.plot3d([0, fov[1,0]], [0, fov[1,1]], [0, fov[1,2]], color=(1,1,1), tube_radius=None, line_width=1, figure=fig1)
-
-    # draw square region
-    TOP_Y_MIN=-20
-    TOP_Y_MAX=20
-    TOP_X_MIN=0
-    TOP_X_MAX=40
-    TOP_Z_MIN=-2.0
-    TOP_Z_MAX=0.4
-
-    x1 = TOP_X_MIN
-    x2 = TOP_X_MAX
-    y1 = TOP_Y_MIN
-    y2 = TOP_Y_MAX
-    mlab.plot3d([x1, x1], [y1, y2], [0,0], color=(0.5,0.5,0.5), tube_radius=0.1, line_width=1, figure=fig1)
-    mlab.plot3d([x2, x2], [y1, y2], [0,0], color=(0.5,0.5,0.5), tube_radius=0.1, line_width=1, figure=fig1)
-    mlab.plot3d([x1, x2], [y1, y1], [0,0], color=(0.5,0.5,0.5), tube_radius=0.1, line_width=1, figure=fig1)
-    mlab.plot3d([x1, x2], [y2, y2], [0,0], color=(0.5,0.5,0.5), tube_radius=0.1, line_width=1, figure=fig1)
-
-    #mlab.orientation_axes()
-    mlab.view(azimuth=180, elevation=70, focalpoint=[ 12.0909996 , -1.04700089, -2.03249991], distance=60.0, figure=fig1)
-    return fig1
-
-def draw_gt_boxes3d(gt_boxes3d, fig, color=(1,1,1), line_width=2, draw_text=True, text_scale=(1,1,1), color_list=None):
-    ''' Draw 3D bounding boxes
-    Args:
-        gt_boxes3d: numpy array (n,8,3) for XYZs of the box corners
-        fig: mayavi figure handler
-        color: RGB value tuple in range (0,1), box line color
-        line_width: box line width
-        draw_text: boolean, if true, write box indices beside boxes
-        text_scale: three number tuple
-        color_list: a list of RGB tuple, if not None, overwrite color.
-    Returns:
-        fig: updated fig
-    '''
-    num = len(gt_boxes3d)
-    for n in range(num):
-        b = gt_boxes3d[n]
-        if color_list is not None:
-            color = color_list[n]
-        if draw_text: mlab.text3d(b[4,0], b[4,1], b[4,2], '%d'%n, scale=text_scale, color=color, figure=fig)
-        for k in range(0,4):
-            #http://docs.enthought.com/mayavi/mayavi/auto/mlab_helper_functions.html
-            i,j=k,(k+1)%4
-            mlab.plot3d([b[i,0], b[j,0]], [b[i,1], b[j,1]], [b[i,2], b[j,2]], color=color, tube_radius=None, line_width=line_width, figure=fig)
-
-            i,j=k+4,(k+1)%4 + 4
-            mlab.plot3d([b[i,0], b[j,0]], [b[i,1], b[j,1]], [b[i,2], b[j,2]], color=color, tube_radius=None, line_width=line_width, figure=fig)
-
-            i,j=k,k+4
-            mlab.plot3d([b[i,0], b[j,0]], [b[i,1], b[j,1]], [b[i,2], b[j,2]], color=color, tube_radius=None, line_width=line_width, figure=fig)
-    #mlab.show(1)
-    #mlab.view(azimuth=180, elevation=70, focalpoint=[ 12.0909996 , -1.04700089, -2.03249991], distance=62.0, figure=fig)
-    return fig
-
-def get_lidar_in_image_fov(pc_velo, calib, xmin, ymin, xmax, ymax,
-                           return_more=False, clip_distance=0.0):
-    ''' Filter lidar points, keep those in image FOV '''
-    pts_2d = calib.project_velo_to_image(pc_velo)
-    fov_inds = (pts_2d[:,0]<xmax) & (pts_2d[:,0]>=xmin) & \
-        (pts_2d[:,1]<ymax) & (pts_2d[:,1]>=ymin)
-    fov_inds = fov_inds & (pc_velo[:,0]>clip_distance)
-    imgfov_pc_velo = pc_velo[fov_inds,:]
-    if return_more:
-        return imgfov_pc_velo, pts_2d, fov_inds
-    else:
-        return imgfov_pc_velo
-
-def show_image_with_boxes(img, objects, calib, show3d=False):
-    ''' Show image with 2D bounding boxes '''
-
-    img2 = np.copy(img) # for 3d bbox
-    for obj in objects:
-        if obj.type=='DontCare':continue
-        #cv2.rectangle(img2, (int(obj.xmin),int(obj.ymin)),
-        #    (int(obj.xmax),int(obj.ymax)), (0,255,0), 2)
-        box3d_pts_2d, box3d_pts_3d = compute_box_3d(obj, calib.P)
-        if box3d_pts_2d is not None:
-            img2 = draw_projected_box3d(img2, box3d_pts_2d, colors[obj.cls_id])
-    if show3d:
-        cv2.imshow("img", img2)
-    return img2
-
-def show_lidar_with_boxes(pc_velo, objects, calib,
-                          img_fov=False, img_width=None, img_height=None, fig=None):
-    ''' Show all LiDAR points.
-        Draw 3d box in LiDAR point cloud (in velo coord system) '''
-
-    if not fig:
-        fig = mlab.figure(figure="KITTI_POINT_CLOUD", bgcolor=(0,0,0), fgcolor=None, engine=None, size=(1250, 550))
-
-    if img_fov:
-        pc_velo = get_lidar_in_image_fov(pc_velo, calib, 0, 0, img_width, img_height)
-
-    draw_lidar(pc_velo, fig1=fig)
-
-    for obj in objects:
-
-        if obj.type=='DontCare':continue
-        # Draw 3d bounding box
-        box3d_pts_2d, box3d_pts_3d = compute_box_3d(obj, calib.P)
-        box3d_pts_3d_velo = calib.project_rect_to_velo(box3d_pts_3d)
-
-        # Draw heading arrow
-        ori3d_pts_2d, ori3d_pts_3d = compute_orientation_3d(obj, calib.P)
-        ori3d_pts_3d_velo = calib.project_rect_to_velo(ori3d_pts_3d)
-        x1,y1,z1 = ori3d_pts_3d_velo[0,:]
-        x2,y2,z2 = ori3d_pts_3d_velo[1,:]
-
-        draw_gt_boxes3d([box3d_pts_3d_velo], fig=fig, color=(0,1,1), line_width=2, draw_text=False)
-
-        mlab.plot3d([x1, x2], [y1, y2], [z1,z2], color=(0.5,0.5,0.5), tube_radius=None, line_width=1, figure=fig)
-
-    mlab.view(distance=90)
-
-from google.colab.patches import cv2_imshow
-
-# Replace the following line
-# cv2.imshow("bev img", RGB_Map)
-# with
-#cv2_imshow(RGB_Map)
-
-def predictions_to_kitti_format(img_detections, calib, img_shape_2d, img_size, RGB_Map=None):
-    predictions = np.zeros([50, 7], dtype=np.float32)
-    count = 0
-    for detections in img_detections:
-        if detections is None:
-            continue
-        # Rescale boxes to original image
-        for x, y, w, l, im, re, conf, cls_conf, cls_pred in detections:
-            yaw = np.arctan2(im, re)
-            predictions[count, :] = cls_pred, x/img_size, y/img_size, w/img_size, l/img_size, im, re
-            count += 1
-            print("ITS COUNTTTTTTTTTT: ", count)
-
-    predictions = inverse_yolo_target(predictions, boundary)
-    if predictions.shape[0]:
-        predictions[:, 1:] = lidar_to_camera_box(predictions[:, 1:], calib.V2C, calib.R0, calib.P)
-
-    objects_new = []
-    corners3d = []
-    for index, l in enumerate(predictions):
-
-        str = "Pedestrian"
-        if l[0] == 0:str="Car"
-        elif l[0] == 1:str="Pedestrian"
-        elif l[0] == 2: str="Cyclist"
-        else:str = "DontCare"
-        line = '%s -1 -1 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0' % str
-
-        obj = Object3d(line)
-        obj.t = l[1:4]
-        obj.h,obj.w,obj.l = l[4:7]
-        obj.ry = np.arctan2(math.sin(l[7]), math.cos(l[7]))
-
-        _, corners_3d = compute_box_3d(obj, calib.P)
-        corners3d.append(corners_3d)
-        objects_new.append(obj)
-
-    if len(corners3d) > 0:
-        corners3d = np.array(corners3d)
-        img_boxes, _ = calib.corners3d_to_img_boxes(corners3d)
-
-        img_boxes[:, 0] = np.clip(img_boxes[:, 0], 0, img_shape_2d[1] - 1)
-        img_boxes[:, 1] = np.clip(img_boxes[:, 1], 0, img_shape_2d[0] - 1)
-        img_boxes[:, 2] = np.clip(img_boxes[:, 2], 0, img_shape_2d[1] - 1)
-        img_boxes[:, 3] = np.clip(img_boxes[:, 3], 0, img_shape_2d[0] - 1)
-
-        img_boxes_w = img_boxes[:, 2] - img_boxes[:, 0]
-        img_boxes_h = img_boxes[:, 3] - img_boxes[:, 1]
-        box_valid_mask = np.logical_and(img_boxes_w < img_shape_2d[1] * 0.8, img_boxes_h < img_shape_2d[0] * 0.8)
-
-    for i, obj in enumerate(objects_new):
-        x, z, ry = obj.t[0], obj.t[2], obj.ry
-        beta = np.arctan2(z, x)
-        alpha = -np.sign(beta) * np.pi / 2 + beta + ry
-
-        obj.alpha = alpha
-        obj.box2d = img_boxes[i, :]
-
-    if RGB_Map is not None:
-        labels, noObjectLabels = read_labels_for_bevbox(objects_new)
-        if not noObjectLabels:
-            labels[:, 1:] = camera_to_lidar_box(labels[:, 1:], calib.V2C, calib.R0, calib.P) # convert rect cam to velo cord
-
-        target = build_yolo_target(labels)
-        draw_box_in_bev(RGB_Map, target)
-
-    return objects_new
-
-if __name__ == "__main__":
-    model_def = "/content/drive/MyDrive/KITTI/yolo_configuration/complex_yolov3.cfg"
-    #weights_path = "checkpoints/tiny-yolov3_ckpt_epoch-220.pth"
-    model_path = '/content/model_stateV2'
-    conf_thres = 0.5
-    nms_thres = 0.5
-    img_size = BEV_WIDTH
-    split = 'valid'
-    folder = 'training'
-    classes = ['Car','Pedestrian','Cyclist']
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Set up model
-    model = Darknet( model_def, img_size= img_size).to(device)
-    # Load checkpoint weights
-    model.load_state_dict(torch.load( model_path,map_location=torch.device('cpu')))
-    # Eval mode
-    model.eval()
-
-    dataset = Dataset(root_dir, split= split, mode='TEST', folder= folder)
-    data_loader = torch_data.DataLoader(dataset, 1, shuffle=False)
-
-    Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
-
-    start_time = time.time()
-    for index, (img_paths, bev_maps) in enumerate(data_loader):
-
-        # Configure bev image
-        input_imgs = Variable(bev_maps.type(Tensor))
-
-        # Get detections
-        with torch.no_grad():
-            detections = model(input_imgs)
-            detections = non_max_suppression_rotated_bbox(detections,  conf_thres,  nms_thres)
-
-        end_time = time.time()
-        print(f"FPS: {(1.0/(end_time-start_time)):0.2f}")
-        start_time = end_time
-
-        img_detections = []  # Stores detections for each image index
-        img_detections.extend(detections)
-
-        bev_maps = torch.squeeze(bev_maps).numpy()
-
-        RGB_Map = np.zeros((BEV_WIDTH, BEV_WIDTH, 3))
-        RGB_Map[:, :, 2] = bev_maps[0, :, :]  # r_map
-        RGB_Map[:, :, 1] = bev_maps[1, :, :]  # g_map
-        RGB_Map[:, :, 0] = bev_maps[2, :, :]  # b_map
-
-        RGB_Map *= 255
-        RGB_Map = RGB_Map.astype(np.uint8)
-
-        for detections in img_detections:
-            if detections is None:
-                continue
-
-            # Rescale boxes to original image
-            detections = rescale_boxes(detections,  img_size, RGB_Map.shape[:2])
-            for x, y, w, l, im, re, conf, cls_conf, cls_pred in detections:
-                yaw = np.arctan2(im, re)
-                # Draw rotated box
-                drawRotatedBox(RGB_Map, x, y, w, l, yaw, colors[int(cls_pred)])
-
-        img2d = cv2.imread(img_paths[0])
-        calib = Calibration(img_paths[0].replace(".png", ".txt").replace("image_2", "calib"))
-        objects_pred = predictions_to_kitti_format(img_detections, calib, img2d.shape,  img_size)
-
-        img2d = show_image_with_boxes(img2d, objects_pred, calib, False)
-
-        cv2_imshow(RGB_Map)
-        cv2_imshow(img2d)
-
-        if cv2.waitKey(0) & 0xFF == 27:
-            break
+# '''
+# def inverse_yolo_target(targets, bc):
+#     ntargets = 0
+#     for i, t in enumerate(targets):
+#         if t.sum(0):ntargets += 1
+
+#     labels = np.zeros([ntargets, 8], dtype=np.float32)
+
+#     n = 0
+#     for t in targets:
+#         if t.sum(0) == 0:
+#             continue
+
+#         c, y, x, w, l, im, re = t
+#         z, h = -1.55, 1.5
+#         if c == 1:
+#             h = 1.8
+#         elif c == 2:
+#             h = 1.4
+
+#         y = y * (bc["maxY"] - bc["minY"]) + bc["minY"]
+#         x = x * (bc["maxX"] - bc["minX"]) + bc["minX"]
+#         w = w * (bc["maxY"] - bc["minY"])
+#         l = l * (bc["maxX"] - bc["minX"])
+
+#         w -= 0.3
+#         l -= 0.3
+
+#         labels[n, :] = c, x, y, z, h, w, l, - np.arctan2(im, re) - 2*np.pi
+#         n += 1
+
+#     return labels
+# def lidar_to_camera(x, y, z,V2C=None, R0=None, P2=None):
+# 	p = np.array([x, y, z, 1])
+# 	if V2C is None or R0 is None:
+# 		p = np.matmul(Tr_velo_to_cam, p)
+# 		p = np.matmul(R0, p)
+# 	else:
+# 		p = np.matmul(V2C, p)
+# 		p = np.matmul(R0, p)
+# 	p = p[0:3]
+# 	return tuple(p)
+
+# def lidar_to_camera_box(boxes,V2C=None, R0=None, P2=None):
+# 	# (N, 7) -> (N, 7) x,y,z,h,w,l,r
+# 	ret = []
+# 	for box in boxes:
+# 		x, y, z, h, w, l, rz = box
+# 		(x, y, z), h, w, l, ry = lidar_to_camera(
+# 			x, y, z,V2C=V2C, R0=R0, P2=P2), h, w, l, -rz - np.pi / 2
+# 		#ry = angle_in_limit(ry)
+# 		ret.append([x, y, z, h, w, l, ry])
+# 	return np.array(ret).reshape(-1, 7)
+
+# def project_to_image(pts_3d, P):
+#     ''' Project 3d points to image plane.
+
+#     Usage: pts_2d = projectToImage(pts_3d, P)
+#       input: pts_3d: nx3 matrix
+#              P:      3x4 projection matrix
+#       output: pts_2d: nx2 matrix
+
+#       P(3x4) dot pts_3d_extended(4xn) = projected_pts_2d(3xn)
+#       => normalize projected_pts_2d(2xn)
+
+#       <=> pts_3d_extended(nx4) dot P'(4x3) = projected_pts_2d(nx3)
+#           => normalize projected_pts_2d(nx2)
+#     '''
+#     n = pts_3d.shape[0]
+#     pts_3d_extend = np.hstack((pts_3d, np.ones((n,1))))
+#     #print(('pts_3d_extend shape: ', pts_3d_extend.shape))
+#     pts_2d = np.dot(pts_3d_extend, np.transpose(P)) # nx3
+#     pts_2d[:,0] /= pts_2d[:,2]
+#     pts_2d[:,1] /= pts_2d[:,2]
+#     return pts_2d[:,0:2]
+
+# def roty(t):
+#     #Rotation about the y-axis.
+#     c = np.cos(t)
+#     s = np.sin(t)
+#     return np.array([[c,  0,  s],
+#                      [0,  1,  0],
+#                      [-s, 0,  c]])
+
+# def compute_box_3d(obj, P):
+#     ''' Takes an object and a projection matrix (P) and projects the 3d
+#         bounding box into the image plane.
+#         Returns:
+#             corners_2d: (8,2) array in left image coord.
+#             corners_3d: (8,3) array in in rect camera coord.
+#     '''
+#     # compute rotational matrix around yaw axis
+#     R = roty(obj.ry)
+
+#     # 3d bounding box dimensions
+#     l = obj.l
+#     w = obj.w
+#     h = obj.h
+
+#     # 3d bounding box corners
+#     x_corners = [l/2,l/2,-l/2,-l/2,l/2,l/2,-l/2,-l/2]
+#     y_corners = [0,0,0,0,-h,-h,-h,-h]
+#     z_corners = [w/2,-w/2,-w/2,w/2,w/2,-w/2,-w/2,w/2]
+
+#     # rotate and translate 3d bounding box
+#     corners_3d = np.dot(R, np.vstack([x_corners,y_corners,z_corners]))
+#     #print corners_3d.shape
+#     corners_3d[0,:] = corners_3d[0,:] + obj.t[0]
+#     corners_3d[1,:] = corners_3d[1,:] + obj.t[1]
+#     corners_3d[2,:] = corners_3d[2,:] + obj.t[2]
+#     #print 'cornsers_3d: ', corners_3d
+#     # only draw 3d bounding box for objs in front of the camera
+#     if np.any(corners_3d[2,:]<0.1):
+#         corners_2d = None
+#         return corners_2d, np.transpose(corners_3d)
+
+#     # project the 3d bounding box into the image plane
+#     corners_2d = project_to_image(np.transpose(corners_3d), P)
+#     #print 'corners_2d: ', corners_2d
+#     return corners_2d, np.transpose(corners_3d)
+
+# def read_labels_for_bevbox(objects):
+#     bbox_selected = []
+#     for obj in objects:
+#         if obj.cls_id != -1:
+#             bbox = []
+#             bbox.append(obj.cls_id)
+#             bbox.extend([obj.t[0], obj.t[1], obj.t[2], obj.h, obj.w, obj.l, obj.ry])
+#             bbox_selected.append(bbox)
+
+#     if (len(bbox_selected) == 0):
+#         return np.zeros((1, 8), dtype=np.float32), True
+#     else:
+#         bbox_selected = np.array(bbox_selected).astype(np.float32)
+#         return bbox_selected, False
+
+
+# def camera_to_lidar(x, y, z, V2C=None,R0=None,P2=None):
+# 	p = np.array([x, y, z, 1])
+# 	if V2C is None or R0 is None:
+# 		p = np.matmul(R0_inv, p)
+# 		p = np.matmul(Tr_velo_to_cam_inv, p)
+# 	else:
+# 		R0_i = np.zeros((4,4))
+# 		R0_i[:3,:3] = R0
+# 		R0_i[3,3] = 1
+# 		p = np.matmul(np.linalg.inv(R0_i), p)
+# 		p = np.matmul(inverse_rigid_trans(V2C), p)
+# 	p = p[0:3]
+# 	return tuple(p)
+
+# def camera_to_lidar_box(boxes, V2C=None, R0=None, P2=None):
+# 	# (N, 7) -> (N, 7) x,y,z,h,w,l,r
+# 	ret = []
+# 	for box in boxes:
+# 		x, y, z, h, w, l, ry = box
+# 		(x, y, z), h, w, l, rz = camera_to_lidar(
+# 			x, y, z,V2C=V2C, R0=R0, P2=P2), h, w, l, -ry - np.pi / 2
+# 		#rz = angle_in_limit(rz)
+# 		ret.append([x, y, z, h, w, l, rz])
+# 	return np.array(ret).reshape(-1, 7)
+
+
+# #send parameters in bev image coordinates format
+# def drawRotatedBox(img,x,y,w,l,yaw,color):
+#     bev_corners = get_corners(x, y, w, l, yaw)
+#     corners_int = bev_corners.reshape(-1, 1, 2).astype(int)
+#     print(corners_int,corners_int.shape)
+#     cv2.polylines(img, [corners_int], True, color, 2)
+#     corners_int = bev_corners.reshape(-1, 2)
+#     cv2.line(img, (int(corners_int[0, 0]), int(corners_int[0, 1])), (int(corners_int[3, 0]), int(corners_int[3, 1])), (255, 255, 0), 2)
+#     #cv2.line(img, (corners_int[0, 0], corners_int[0, 1]), (corners_int[3, 0], corners_int[3, 1]), (255, 255, 0), 2)
+
+# def draw_box_in_bev(rgb_map, target):
+#     for j in range(50):
+#         if(np.sum(target[j,1:]) == 0):continue
+#         cls_id = int(target[j][0])
+#         x = target[j][1] *  BEV_WIDTH
+#         y = target[j][2] *  BEV_HEIGHT
+#         w = target[j][3] *  BEV_WIDTH
+#         l = target[j][4] *  BEV_HEIGHT
+#         yaw = np.arctan2(target[j][5], target[j][6])
+#         drawRotatedBox(rgb_map, x, y, w, l, yaw,  colors[cls_id])
+
+# def rescale_boxes(boxes, current_dim, original_shape):
+#     """ Rescales bounding boxes to the original shape """
+#     orig_h, orig_w = original_shape
+#     # The amount of padding that was added
+#     pad_x = max(orig_h - orig_w, 0) * (current_dim / max(original_shape))
+#     pad_y = max(orig_w - orig_h, 0) * (current_dim / max(original_shape))
+#     # Image height and width after padding is removed
+#     unpad_h = current_dim - pad_y
+#     unpad_w = current_dim - pad_x
+#     # Rescale bounding boxes to dimension of original image
+#     boxes[:, 0] = ((boxes[:, 0] - pad_x // 2) / unpad_w) * orig_w
+#     boxes[:, 1] = ((boxes[:, 1] - pad_y // 2) / unpad_h) * orig_h
+#     boxes[:, 2] = ((boxes[:, 2] - pad_x // 2) / unpad_w) * orig_w
+#     boxes[:, 3] = ((boxes[:, 3] - pad_y // 2) / unpad_h) * orig_h
+
+#     return boxes
+# def compute_orientation_3d(obj, P):
+#     ''' Takes an object and a projection matrix (P) and projects the 3d
+#         object orientation vector into the image plane.
+#         Returns:
+#             orientation_2d: (2,2) array in left image coord.
+#             orientation_3d: (2,3) array in in rect camera coord.
+#     '''
+
+#     # compute rotational matrix around yaw axis
+#     R = roty(obj.ry)
+
+#     # orientation in object coordinate system
+#     orientation_3d = np.array([[0.0, obj.l],[0,0],[0,0]])
+
+#     # rotate and translate in camera coordinate system, project in image
+#     orientation_3d = np.dot(R, orientation_3d)
+#     orientation_3d[0,:] = orientation_3d[0,:] + obj.t[0]
+#     orientation_3d[1,:] = orientation_3d[1,:] + obj.t[1]
+#     orientation_3d[2,:] = orientation_3d[2,:] + obj.t[2]
+
+#     # vector behind image plane?
+#     if np.any(orientation_3d[2,:]<0.1):
+#       orientation_2d = None
+#       return orientation_2d, np.transpose(orientation_3d)
+
+#     # project orientation into the image plane
+#     orientation_2d = project_to_image(np.transpose(orientation_3d), P)
+#     return orientation_2d, np.transpose(orientation_3d)
+
+# def draw_projected_box3d(image, qs, color=(255,0,255), thickness=2):
+#     ''' Draw 3d bounding box in image
+#         qs: (8,3) array of vertices for the 3d box in following order:
+#             1 -------- 0
+#            /|         /|
+#           2 -------- 3 .
+#           | |        | |
+#           . 5 -------- 4
+#           |/         |/
+#           6 -------- 7
+#     '''
+#     qs = qs.astype(np.int32)
+#     for k in range(0,4):
+#        # Ref: http://docs.enthought.com/mayavi/mayavi/auto/mlab_helper_functions.html
+#        i,j=k,(k+1)%4
+#        # use LINE_AA for opencv3
+#        cv2.line(image, (qs[i,0],qs[i,1]), (qs[j,0],qs[j,1]), color, thickness)
+
+#        i,j=k+4,(k+1)%4 + 4
+#        cv2.line(image, (qs[i,0],qs[i,1]), (qs[j,0],qs[j,1]), color, thickness)
+
+#        i,j=k,k+4
+#        cv2.line(image, (qs[i,0],qs[i,1]), (qs[j,0],qs[j,1]), color, thickness)
+#     return image
+
+# def draw_lidar_simple(pc, color=None):
+#     ''' Draw lidar points. simplest set up. '''
+#     fig = mlab.figure(figure=None, bgcolor=(0,0,0), fgcolor=None, engine=None, size=(1600, 1000))
+#     if color is None: color = pc[:,2]
+#     #draw points
+#     mlab.points3d(pc[:,0], pc[:,1], pc[:,2], color, color=None, mode='point', colormap = 'gnuplot', scale_factor=1, figure=fig)
+#     #draw origin
+#     mlab.points3d(0, 0, 0, color=(1,1,1), mode='sphere', scale_factor=0.2)
+#     #draw axis
+#     axes=np.array([
+#         [2.,0.,0.,0.],
+#         [0.,2.,0.,0.],
+#         [0.,0.,2.,0.],
+#     ],dtype=np.float64)
+#     mlab.plot3d([0, axes[0,0]], [0, axes[0,1]], [0, axes[0,2]], color=(1,0,0), tube_radius=None, figure=fig)
+#     mlab.plot3d([0, axes[1,0]], [0, axes[1,1]], [0, axes[1,2]], color=(0,1,0), tube_radius=None, figure=fig)
+#     mlab.plot3d([0, axes[2,0]], [0, axes[2,1]], [0, axes[2,2]], color=(0,0,1), tube_radius=None, figure=fig)
+#     mlab.view(azimuth=180, elevation=70, focalpoint=[ 12.0909996 , -1.04700089, -2.03249991], distance=62.0, figure=fig)
+#     return fig
+
+# def draw_lidar(pc, color=None, fig1=None, bgcolor=(0,0,0), pts_scale=1, pts_mode='point', pts_color=None):
+#     ''' Draw lidar points
+#     Args:
+#         pc: numpy array (n,3) of XYZ
+#         color: numpy array (n) of intensity or whatever
+#         fig: mayavi figure handler, if None create new one otherwise will use it
+#     Returns:
+#         fig: created or used fig
+#     '''
+#     #if fig1 is None: fig1 = mlab.figure(figure="point cloud", bgcolor=bgcolor, fgcolor=None, engine=None, size=(1600, 1000))
+
+#     mlab.clf(figure=None)
+#     if color is None: color = pc[:,2]
+#     mlab.points3d(pc[:,0], pc[:,1], pc[:,2], color, color=pts_color, mode=pts_mode, colormap = 'gnuplot', scale_factor=pts_scale, figure=fig1)
+
+#     #draw origin
+#     mlab.points3d(0, 0, 0, color=(1,1,1), mode='sphere', scale_factor=0.2)
+
+#     #draw axis
+#     axes=np.array([
+#         [2.,0.,0.,0.],
+#         [0.,2.,0.,0.],
+#         [0.,0.,2.,0.],
+#     ],dtype=np.float64)
+
+#     mlab.plot3d([0, axes[0,0]], [0, axes[0,1]], [0, axes[0,2]], color=(1,0,0), tube_radius=None, figure=fig1)
+#     mlab.plot3d([0, axes[1,0]], [0, axes[1,1]], [0, axes[1,2]], color=(0,1,0), tube_radius=None, figure=fig1)
+#     mlab.plot3d([0, axes[2,0]], [0, axes[2,1]], [0, axes[2,2]], color=(0,0,1), tube_radius=None, figure=fig1)
+
+#     # draw fov (todo: update to real sensor spec.)
+#     fov=np.array([  # 45 degree
+#         [20., 20., 0.,0.],
+#         [20.,-20., 0.,0.],
+#     ],dtype=np.float64)
+
+#     mlab.plot3d([0, fov[0,0]], [0, fov[0,1]], [0, fov[0,2]], color=(1,1,1), tube_radius=None, line_width=1, figure=fig1)
+#     mlab.plot3d([0, fov[1,0]], [0, fov[1,1]], [0, fov[1,2]], color=(1,1,1), tube_radius=None, line_width=1, figure=fig1)
+
+#     # draw square region
+#     TOP_Y_MIN=-20
+#     TOP_Y_MAX=20
+#     TOP_X_MIN=0
+#     TOP_X_MAX=40
+#     TOP_Z_MIN=-2.0
+#     TOP_Z_MAX=0.4
+
+#     x1 = TOP_X_MIN
+#     x2 = TOP_X_MAX
+#     y1 = TOP_Y_MIN
+#     y2 = TOP_Y_MAX
+#     mlab.plot3d([x1, x1], [y1, y2], [0,0], color=(0.5,0.5,0.5), tube_radius=0.1, line_width=1, figure=fig1)
+#     mlab.plot3d([x2, x2], [y1, y2], [0,0], color=(0.5,0.5,0.5), tube_radius=0.1, line_width=1, figure=fig1)
+#     mlab.plot3d([x1, x2], [y1, y1], [0,0], color=(0.5,0.5,0.5), tube_radius=0.1, line_width=1, figure=fig1)
+#     mlab.plot3d([x1, x2], [y2, y2], [0,0], color=(0.5,0.5,0.5), tube_radius=0.1, line_width=1, figure=fig1)
+
+#     #mlab.orientation_axes()
+#     mlab.view(azimuth=180, elevation=70, focalpoint=[ 12.0909996 , -1.04700089, -2.03249991], distance=60.0, figure=fig1)
+#     return fig1
+
+# def draw_gt_boxes3d(gt_boxes3d, fig, color=(1,1,1), line_width=2, draw_text=True, text_scale=(1,1,1), color_list=None):
+#     ''' Draw 3D bounding boxes
+#     Args:
+#         gt_boxes3d: numpy array (n,8,3) for XYZs of the box corners
+#         fig: mayavi figure handler
+#         color: RGB value tuple in range (0,1), box line color
+#         line_width: box line width
+#         draw_text: boolean, if true, write box indices beside boxes
+#         text_scale: three number tuple
+#         color_list: a list of RGB tuple, if not None, overwrite color.
+#     Returns:
+#         fig: updated fig
+#     '''
+#     num = len(gt_boxes3d)
+#     for n in range(num):
+#         b = gt_boxes3d[n]
+#         if color_list is not None:
+#             color = color_list[n]
+#         if draw_text: mlab.text3d(b[4,0], b[4,1], b[4,2], '%d'%n, scale=text_scale, color=color, figure=fig)
+#         for k in range(0,4):
+#             #http://docs.enthought.com/mayavi/mayavi/auto/mlab_helper_functions.html
+#             i,j=k,(k+1)%4
+#             mlab.plot3d([b[i,0], b[j,0]], [b[i,1], b[j,1]], [b[i,2], b[j,2]], color=color, tube_radius=None, line_width=line_width, figure=fig)
+
+#             i,j=k+4,(k+1)%4 + 4
+#             mlab.plot3d([b[i,0], b[j,0]], [b[i,1], b[j,1]], [b[i,2], b[j,2]], color=color, tube_radius=None, line_width=line_width, figure=fig)
+
+#             i,j=k,k+4
+#             mlab.plot3d([b[i,0], b[j,0]], [b[i,1], b[j,1]], [b[i,2], b[j,2]], color=color, tube_radius=None, line_width=line_width, figure=fig)
+#     #mlab.show(1)
+#     #mlab.view(azimuth=180, elevation=70, focalpoint=[ 12.0909996 , -1.04700089, -2.03249991], distance=62.0, figure=fig)
+#     return fig
+
+# def get_lidar_in_image_fov(pc_velo, calib, xmin, ymin, xmax, ymax,
+#                            return_more=False, clip_distance=0.0):
+#     ''' Filter lidar points, keep those in image FOV '''
+#     pts_2d = calib.project_velo_to_image(pc_velo)
+#     fov_inds = (pts_2d[:,0]<xmax) & (pts_2d[:,0]>=xmin) & \
+#         (pts_2d[:,1]<ymax) & (pts_2d[:,1]>=ymin)
+#     fov_inds = fov_inds & (pc_velo[:,0]>clip_distance)
+#     imgfov_pc_velo = pc_velo[fov_inds,:]
+#     if return_more:
+#         return imgfov_pc_velo, pts_2d, fov_inds
+#     else:
+#         return imgfov_pc_velo
+
+# def show_image_with_boxes(img, objects, calib, show3d=False):
+#     ''' Show image with 2D bounding boxes '''
+
+#     img2 = np.copy(img) # for 3d bbox
+#     for obj in objects:
+#         if obj.type=='DontCare':continue
+#         #cv2.rectangle(img2, (int(obj.xmin),int(obj.ymin)),
+#         #    (int(obj.xmax),int(obj.ymax)), (0,255,0), 2)
+#         box3d_pts_2d, box3d_pts_3d = compute_box_3d(obj, calib.P)
+#         if box3d_pts_2d is not None:
+#             img2 = draw_projected_box3d(img2, box3d_pts_2d, colors[obj.cls_id])
+#     if show3d:
+#         cv2.imshow("img", img2)
+#     return img2
+
+# def show_lidar_with_boxes(pc_velo, objects, calib,
+#                           img_fov=False, img_width=None, img_height=None, fig=None):
+#     ''' Show all LiDAR points.
+#         Draw 3d box in LiDAR point cloud (in velo coord system) '''
+
+#     if not fig:
+#         fig = mlab.figure(figure="KITTI_POINT_CLOUD", bgcolor=(0,0,0), fgcolor=None, engine=None, size=(1250, 550))
+
+#     if img_fov:
+#         pc_velo = get_lidar_in_image_fov(pc_velo, calib, 0, 0, img_width, img_height)
+
+#     draw_lidar(pc_velo, fig1=fig)
+
+#     for obj in objects:
+
+#         if obj.type=='DontCare':continue
+#         # Draw 3d bounding box
+#         box3d_pts_2d, box3d_pts_3d = compute_box_3d(obj, calib.P)
+#         box3d_pts_3d_velo = calib.project_rect_to_velo(box3d_pts_3d)
+
+#         # Draw heading arrow
+#         ori3d_pts_2d, ori3d_pts_3d = compute_orientation_3d(obj, calib.P)
+#         ori3d_pts_3d_velo = calib.project_rect_to_velo(ori3d_pts_3d)
+#         x1,y1,z1 = ori3d_pts_3d_velo[0,:]
+#         x2,y2,z2 = ori3d_pts_3d_velo[1,:]
+
+#         draw_gt_boxes3d([box3d_pts_3d_velo], fig=fig, color=(0,1,1), line_width=2, draw_text=False)
+
+#         mlab.plot3d([x1, x2], [y1, y2], [z1,z2], color=(0.5,0.5,0.5), tube_radius=None, line_width=1, figure=fig)
+
+#     mlab.view(distance=90)
+
+# from google.colab.patches import cv2_imshow
+
+# # Replace the following line
+# # cv2.imshow("bev img", RGB_Map)
+# # with
+# #cv2_imshow(RGB_Map)
+
+# def predictions_to_kitti_format(img_detections, calib, img_shape_2d, img_size, RGB_Map=None):
+#     predictions = np.zeros([50, 7], dtype=np.float32)
+#     count = 0
+#     for detections in img_detections:
+#         if detections is None:
+#             continue
+#         # Rescale boxes to original image
+#         for x, y, w, l, im, re, conf, cls_conf, cls_pred in detections:
+#             yaw = np.arctan2(im, re)
+#             predictions[count, :] = cls_pred, x/img_size, y/img_size, w/img_size, l/img_size, im, re
+#             count += 1
+#             print("ITS COUNTTTTTTTTTT: ", count)
+
+#     predictions = inverse_yolo_target(predictions, boundary)
+#     if predictions.shape[0]:
+#         predictions[:, 1:] = lidar_to_camera_box(predictions[:, 1:], calib.V2C, calib.R0, calib.P)
+
+#     objects_new = []
+#     corners3d = []
+#     for index, l in enumerate(predictions):
+
+#         str = "Pedestrian"
+#         if l[0] == 0:str="Car"
+#         elif l[0] == 1:str="Pedestrian"
+#         elif l[0] == 2: str="Cyclist"
+#         else:str = "DontCare"
+#         line = '%s -1 -1 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0' % str
+
+#         obj = Object3d(line)
+#         obj.t = l[1:4]
+#         obj.h,obj.w,obj.l = l[4:7]
+#         obj.ry = np.arctan2(math.sin(l[7]), math.cos(l[7]))
+
+#         _, corners_3d = compute_box_3d(obj, calib.P)
+#         corners3d.append(corners_3d)
+#         objects_new.append(obj)
+
+#     if len(corners3d) > 0:
+#         corners3d = np.array(corners3d)
+#         img_boxes, _ = calib.corners3d_to_img_boxes(corners3d)
+
+#         img_boxes[:, 0] = np.clip(img_boxes[:, 0], 0, img_shape_2d[1] - 1)
+#         img_boxes[:, 1] = np.clip(img_boxes[:, 1], 0, img_shape_2d[0] - 1)
+#         img_boxes[:, 2] = np.clip(img_boxes[:, 2], 0, img_shape_2d[1] - 1)
+#         img_boxes[:, 3] = np.clip(img_boxes[:, 3], 0, img_shape_2d[0] - 1)
+
+#         img_boxes_w = img_boxes[:, 2] - img_boxes[:, 0]
+#         img_boxes_h = img_boxes[:, 3] - img_boxes[:, 1]
+#         box_valid_mask = np.logical_and(img_boxes_w < img_shape_2d[1] * 0.8, img_boxes_h < img_shape_2d[0] * 0.8)
+
+#     for i, obj in enumerate(objects_new):
+#         x, z, ry = obj.t[0], obj.t[2], obj.ry
+#         beta = np.arctan2(z, x)
+#         alpha = -np.sign(beta) * np.pi / 2 + beta + ry
+
+#         obj.alpha = alpha
+#         obj.box2d = img_boxes[i, :]
+
+#     if RGB_Map is not None:
+#         labels, noObjectLabels = read_labels_for_bevbox(objects_new)
+#         if not noObjectLabels:
+#             labels[:, 1:] = camera_to_lidar_box(labels[:, 1:], calib.V2C, calib.R0, calib.P) # convert rect cam to velo cord
+
+#         target = build_yolo_target(labels)
+#         draw_box_in_bev(RGB_Map, target)
+
+#     return objects_new
+
+# if __name__ == "__main__":
+#     model_def = "/content/drive/MyDrive/KITTI/yolo_configuration/complex_yolov3.cfg"
+#     #weights_path = "checkpoints/tiny-yolov3_ckpt_epoch-220.pth"
+#     model_path = '/content/model_stateV2'
+#     conf_thres = 0.5
+#     nms_thres = 0.5
+#     img_size = BEV_WIDTH
+#     split = 'valid'
+#     folder = 'training'
+#     classes = ['Car','Pedestrian','Cyclist']
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+#     # Set up model
+#     model = Darknet( model_def, img_size= img_size).to(device)
+#     # Load checkpoint weights
+#     model.load_state_dict(torch.load( model_path,map_location=torch.device('cpu')))
+#     # Eval mode
+#     model.eval()
+
+#     dataset = Dataset(root_dir, split= split, mode='TEST', folder= folder)
+#     data_loader = torch_data.DataLoader(dataset, 1, shuffle=False)
+
+#     Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
+
+#     start_time = time.time()
+#     for index, (img_paths, bev_maps) in enumerate(data_loader):
+
+#         # Configure bev image
+#         input_imgs = Variable(bev_maps.type(Tensor))
+
+#         # Get detections
+#         with torch.no_grad():
+#             detections = model(input_imgs)
+#             detections = non_max_suppression_rotated_bbox(detections,  conf_thres,  nms_thres)
+
+#         end_time = time.time()
+#         print(f"FPS: {(1.0/(end_time-start_time)):0.2f}")
+#         start_time = end_time
+
+#         img_detections = []  # Stores detections for each image index
+#         img_detections.extend(detections)
+
+#         bev_maps = torch.squeeze(bev_maps).numpy()
+
+#         RGB_Map = np.zeros((BEV_WIDTH, BEV_WIDTH, 3))
+#         RGB_Map[:, :, 2] = bev_maps[0, :, :]  # r_map
+#         RGB_Map[:, :, 1] = bev_maps[1, :, :]  # g_map
+#         RGB_Map[:, :, 0] = bev_maps[2, :, :]  # b_map
+
+#         RGB_Map *= 255
+#         RGB_Map = RGB_Map.astype(np.uint8)
+
+#         for detections in img_detections:
+#             if detections is None:
+#                 continue
+
+#             # Rescale boxes to original image
+#             detections = rescale_boxes(detections,  img_size, RGB_Map.shape[:2])
+#             for x, y, w, l, im, re, conf, cls_conf, cls_pred in detections:
+#                 yaw = np.arctan2(im, re)
+#                 # Draw rotated box
+#                 drawRotatedBox(RGB_Map, x, y, w, l, yaw, colors[int(cls_pred)])
+
+#         img2d = cv2.imread(img_paths[0])
+#         calib = Calibration(img_paths[0].replace(".png", ".txt").replace("image_2", "calib"))
+#         objects_pred = predictions_to_kitti_format(img_detections, calib, img2d.shape,  img_size)
+
+#         img2d = show_image_with_boxes(img2d, objects_pred, calib, False)
+
+#         cv2_imshow(RGB_Map)
+#         cv2_imshow(img2d)
+
+#         if cv2.waitKey(0) & 0xFF == 27:
+#             break
 
