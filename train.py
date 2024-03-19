@@ -1511,7 +1511,8 @@ if __name__ == "__main__":
 
     # Initiate model
     model = Darknet(model_def, img_size=img_size).to(device)
-    model.load_state_dict(torch.load('model_stateV3'))
+    model.load_state_dict(torch.load('model_stateV3', map_location=torch.device('cpu')))
+
     #model.load_state_dict(torch.load('/content/model_stateV3'))
 
     # Get dataloader
