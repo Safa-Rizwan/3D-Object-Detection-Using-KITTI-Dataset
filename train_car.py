@@ -722,6 +722,7 @@ class Dataset(torch_data.Dataset):
 
   def collate_fn(self, batch):
         paths, imgs, targets = list(zip(*batch))
+        print(paths, imgs, target)
         # Remove empty placeholder targets
         targets = [boxes for boxes in targets if boxes is not None]
         # Add sample index to targets
@@ -741,6 +742,9 @@ class Dataset(torch_data.Dataset):
 """# Model Development - Complex Yolo
 
 ## Utility functions
+
+
+
 """
 
 def convert_format(boxes_array):
