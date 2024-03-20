@@ -516,7 +516,7 @@ class Dataset(torch_data.Dataset):
 
     if self.split == "train":
       #split_directory = os.path.join(root_dir, 'KITTI', 'ImageSets', split+ '.txt')
-      split_directory = '/data2/ImageSets/train.txt'
+      split_directory = '/home/ubuntu/safa/3D-Object-Detection-Using-KITTI-Dataset/data2/ImageSets/train.txt'
       self.image_id_list = [x.strip() for x in open(split_directory).readlines()]
     else:
       bin_files = glob.glob("%s/*.bin" % self.lidar_path) # using wild card pattern for matching
@@ -2037,7 +2037,7 @@ def show_lidar_with_boxes(pc_velo, objects, calib,
 
     mlab.view(distance=90)
 
-from google.colab.patches import cv2_imshow
+
 
 # Replace the following line
 # cv2.imshow("bev img", RGB_Map)
@@ -2113,9 +2113,9 @@ def predictions_to_kitti_format(img_detections, calib, img_shape_2d, img_size, R
     return objects_new
 
 if __name__ == "__main__":
-    model_def = "/content/drive/MyDrive/KITTI/yolo_configuration/complex_yolov3.cfg"
+    model_def = "yolo_configuration/complex_yolov3.cfg"
     #weights_path = "checkpoints/tiny-yolov3_ckpt_epoch-220.pth"
-    model_path = '/content/model_stateV2'
+    model_path = 'model_stateV4'
     conf_thres = 0.5
     nms_thres = 0.5
     img_size = BEV_WIDTH
@@ -2183,8 +2183,9 @@ if __name__ == "__main__":
 
         #cv2.imshow(RGB_Map)
         #cv2.imshow(img2d)
-        cv2.imwrite()
-        
-
-        if cv2.waitKey(0) & 0xFF == 27:
-            break
+        # Save image to output folder
+        count = 1
+        output_folder = '/home/ubuntu/safa/3D-Object-Detection-Using-KITTI-Dataset/output-folder'
+        cv2.imwrite(os.path.join(output_folder, f"predicted_RGBimage{count}.jpg"),RGB_Map )
+        cv2.imwrite(os.path.join(output_folder, f"predicted_2dimage{count}.jpg"),img2d )
+        count+=1
