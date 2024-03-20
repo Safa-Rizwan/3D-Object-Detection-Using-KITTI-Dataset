@@ -2123,7 +2123,8 @@ if __name__ == "__main__":
     folder = 'training'
     classes = ['Car','Pedestrian','Cyclist']
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    count = 1
+    output_folder = '/home/ubuntu/safa/3D-Object-Detection-Using-KITTI-Dataset/output-folder'
     # Set up model
     model = Darknet( model_def, img_size= img_size).to(device)
     # Load checkpoint weights
@@ -2184,8 +2185,7 @@ if __name__ == "__main__":
         #cv2.imshow(RGB_Map)
         #cv2.imshow(img2d)
         # Save image to output folder
-        count = 1
-        output_folder = '/home/ubuntu/safa/3D-Object-Detection-Using-KITTI-Dataset/output-folder'
+        
         cv2.imwrite(os.path.join(output_folder, f"predicted_RGBimage{count}.jpg"),RGB_Map )
         cv2.imwrite(os.path.join(output_folder, f"predicted_2dimage{count}.jpg"),img2d )
         count+=1
