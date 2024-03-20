@@ -722,7 +722,7 @@ class Dataset(torch_data.Dataset):
 
   def collate_fn(self, batch):
         paths, imgs, targets = list(zip(*batch))
-        print(paths, imgs, target)
+        print(paths, imgs, targets)
         # Remove empty placeholder targets
         targets = [boxes for boxes in targets if boxes is not None]
         # Add sample index to targets
