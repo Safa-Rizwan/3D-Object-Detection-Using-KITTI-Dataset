@@ -2067,8 +2067,8 @@ def predictions_to_kitti_format(img_detections, calib, img_shape_2d, img_size, R
 
         str = "Pedestrian"
         if l[0] == 0:str="Car"
-        elif l[0] == 1:str="Pedestrian"
-        elif l[0] == 2: str="Cyclist"
+        elif l[0] == 1:str="DontCare"
+        elif l[0] == 2: str="DontCare"
         else:str = "DontCare"
         line = '%s -1 -1 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0' % str
 
@@ -2124,7 +2124,7 @@ if __name__ == "__main__":
     classes = ['Car','Pedestrian','Cyclist']
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     count = 1
-    output_folder = '/home/ubuntu/safa/3D-Object-Detection-Using-KITTI-Dataset/output-folder'
+    output_folder = '/home/ubuntu/safa/3D-Object-Detection-Using-KITTI-Dataset/output-folder-car'
     # Set up model
     model = Darknet( model_def, img_size= img_size).to(device)
     # Load checkpoint weights
