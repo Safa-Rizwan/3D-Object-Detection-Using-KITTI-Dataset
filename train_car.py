@@ -721,6 +721,7 @@ class Dataset(torch_data.Dataset):
           return img_file, rgb_map
 
   def collate_fn(self, batch):
+        print(batch)
         paths, imgs, targets = list(zip(*batch))
         print(paths, imgs, targets)
         # Remove empty placeholder targets
