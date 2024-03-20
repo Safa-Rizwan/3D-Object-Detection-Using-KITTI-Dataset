@@ -1495,7 +1495,7 @@ def evaluate(model, iou_thres, conf_thres, nms_thres, img_size, batch_size):
 
 if __name__ == "__main__":
 
-    epochs = 100
+    epochs = 2
     batch_size = 4
     gradient_accumulations=2
     model_def='yolo_configuration/complex_yolov3.cfg'
