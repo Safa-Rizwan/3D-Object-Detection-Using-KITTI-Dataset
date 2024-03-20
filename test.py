@@ -1494,118 +1494,118 @@ def evaluate(model, iou_thres, conf_thres, nms_thres, img_size, batch_size):
 
 """# For new training set:"""
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
-    epochs = 100
-    batch_size = 4
-    gradient_accumulations=2
-    model_def='yolo_configuration/complex_yolov3.cfg'
-    n_cpu = 8
-    img_size=BEV_WIDTH
-    evaluation_interval=2
-    multiscale_training=True
-    #model_path = "/content/drive/MyDrive/Kitti/model"
-    #pretrained_weights
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#     epochs = 100
+#     batch_size = 4
+#     gradient_accumulations=2
+#     model_def='yolo_configuration/complex_yolov3.cfg'
+#     n_cpu = 8
+#     img_size=BEV_WIDTH
+#     evaluation_interval=2
+#     multiscale_training=True
+#     #model_path = "/content/drive/MyDrive/Kitti/model"
+#     #pretrained_weights
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    class_names = ['Car','Pedestrian','Cyclist']
+#     class_names = ['Car','Pedestrian','Cyclist']
 
-    # Initiate model
-    model = Darknet(model_def, img_size=img_size).to(device)
-    model.load_state_dict(torch.load('model/model_stateV3'))
-    #model.load_state_dict(torch.load('/content/model_stateV3'))
+#     # Initiate model
+#     model = Darknet(model_def, img_size=img_size).to(device)
+#     model.load_state_dict(torch.load('model/model_stateV3'))
+#     #model.load_state_dict(torch.load('/content/model_stateV3'))
 
-    # Get dataloader
-    dataset = Dataset(
-        root_dir,
-        split='train',
-        mode='TRAIN',
-        folder='training',
-        multiscale=multiscale_training
-    )
+#     # Get dataloader
+#     dataset = Dataset(
+#         root_dir,
+#         split='train',
+#         mode='TRAIN',
+#         folder='training',
+#         multiscale=multiscale_training
+#     )
 
-    dataloader = DataLoader(
-        dataset,
-         batch_size,
-        shuffle=True,
-        num_workers=n_cpu,
-        pin_memory=True,
-        collate_fn=dataset.collate_fn
-    )
+#     dataloader = DataLoader(
+#         dataset,
+#          batch_size,
+#         shuffle=True,
+#         num_workers=n_cpu,
+#         pin_memory=True,
+#         collate_fn=dataset.collate_fn
+#     )
 
-    optimizer = torch.optim.Adam(model.parameters())
+#     optimizer = torch.optim.Adam(model.parameters())
 
-    metrics = [
-        "grid_size",
-        "loss",
-        "x",
-        "y",
-        "w",
-        "h",
-        "im",
-        "re",
-        "conf",
-        "cls",
-        "cls_acc",
-        "recall50",
-        "recall75",
-        "precision",
-        "conf_obj",
-        "conf_noobj",
-    ]
-    count = 0
-    max_mAP = 0.0
-    for epoch in range(0, epochs, 1):
-        print(count)
-        count +=1
-        model.train()
-        for batch_i, (_, imgs, targets) in enumerate(dataloader):
-            batches_done = len(dataloader) * epoch + batch_i
+#     metrics = [
+#         "grid_size",
+#         "loss",
+#         "x",
+#         "y",
+#         "w",
+#         "h",
+#         "im",
+#         "re",
+#         "conf",
+#         "cls",
+#         "cls_acc",
+#         "recall50",
+#         "recall75",
+#         "precision",
+#         "conf_obj",
+#         "conf_noobj",
+#     ]
+#     count = 0
+#     max_mAP = 0.0
+#     for epoch in range(0, epochs, 1):
+#         print(count)
+#         count +=1
+#         model.train()
+#         for batch_i, (_, imgs, targets) in enumerate(dataloader):
+#             batches_done = len(dataloader) * epoch + batch_i
 
-            imgs = Variable(imgs.to(device))
-            targets = Variable(targets.to(device), requires_grad=False)
+#             imgs = Variable(imgs.to(device))
+#             targets = Variable(targets.to(device), requires_grad=False)
 
-            loss, outputs = model(imgs, targets)
-            loss.backward()
+#             loss, outputs = model(imgs, targets)
+#             loss.backward()
 
-            if batches_done %  gradient_accumulations:
-                # Accumulates gradient before each step
-                optimizer.step()
-                optimizer.zero_grad()
-            model.seen += imgs.size(0)
+#             if batches_done %  gradient_accumulations:
+#                 # Accumulates gradient before each step
+#                 optimizer.step()
+#                 optimizer.zero_grad()
+#             model.seen += imgs.size(0)
 
-        if epoch %  evaluation_interval == 0:
-            print("\n---- Evaluating Model ----")
-            # Evaluate the model on the validation set
-            precision, recall, AP, f1, ap_class = evaluate(
-                model,
-                iou_thres=0.5,
-                conf_thres=0.5,
-                nms_thres=0.5,
-                img_size= img_size,
-                batch_size=8,
-            )
-            evaluation_metrics = [
-                ("val_precision", precision.mean()),
-                ("val_recall", recall.mean()),
-                ("val_mAP", AP.mean()),
-                ("val_f1", f1.mean()),
-            ]
+#         if epoch %  evaluation_interval == 0:
+#             print("\n---- Evaluating Model ----")
+#             # Evaluate the model on the validation set
+#             precision, recall, AP, f1, ap_class = evaluate(
+#                 model,
+#                 iou_thres=0.5,
+#                 conf_thres=0.5,
+#                 nms_thres=0.5,
+#                 img_size= img_size,
+#                 batch_size=8,
+#             )
+#             evaluation_metrics = [
+#                 ("val_precision", precision.mean()),
+#                 ("val_recall", recall.mean()),
+#                 ("val_mAP", AP.mean()),
+#                 ("val_f1", f1.mean()),
+#             ]
 
-            # Print class APs and mAP
-            ap_table = [["Index", "Class name", "AP"]]
-            for i, c in enumerate(ap_class):
-                ap_table += [[c, class_names[c], "%.5f" % AP[i]]]
-            print(AsciiTable(ap_table).table)
-            print(f"---- mAP {AP.mean()}")
+#             # Print class APs and mAP
+#             ap_table = [["Index", "Class name", "AP"]]
+#             for i, c in enumerate(ap_class):
+#                 ap_table += [[c, class_names[c], "%.5f" % AP[i]]]
+#             print(AsciiTable(ap_table).table)
+#             print(f"---- mAP {AP.mean()}")
 
-            #if epoch %  checkpoint_interval == 0:
-            if AP.mean() > max_mAP:
-                #torch.save(model.state_dict(), f"checkpoints/yolov3_ckpt_epoch-%d_MAP-%.2f.pth" % (epoch, AP.mean()))
-                max_mAP = AP.mean()
+#             #if epoch %  checkpoint_interval == 0:
+#             if AP.mean() > max_mAP:
+#                 #torch.save(model.state_dict(), f"checkpoints/yolov3_ckpt_epoch-%d_MAP-%.2f.pth" % (epoch, AP.mean()))
+#                 max_mAP = AP.mean()
 
-torch.save(model.state_dict(),'model_stateV4')
-torch.save(model, 'entire_modelV4')
+# torch.save(model.state_dict(),'model_stateV4')
+# torch.save(model, 'entire_modelV4')
 
 """# Testing
 
@@ -2181,8 +2181,10 @@ if __name__ == "__main__":
 
         img2d = show_image_with_boxes(img2d, objects_pred, calib, False)
 
-        cv.imshow(RGB_Map)
-        cv.imshow(img2d)
+        #cv2.imshow(RGB_Map)
+        #cv2.imshow(img2d)
+        cv2.imwrite()
+        
 
         if cv2.waitKey(0) & 0xFF == 27:
             break

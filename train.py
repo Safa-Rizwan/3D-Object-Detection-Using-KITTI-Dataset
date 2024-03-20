@@ -1499,7 +1499,7 @@ if __name__ == "__main__":
     batch_size = 4
     gradient_accumulations=2
     model_def='yolo_configuration/complex_yolov3.cfg'
-    n_cpu = 8
+    n_cpu = 4
     img_size=BEV_WIDTH
     evaluation_interval=2
     multiscale_training=True
@@ -1511,9 +1511,9 @@ if __name__ == "__main__":
 
     # Initiate model
     model = Darknet(model_def, img_size=img_size).to(device)
-    model.load_state_dict(torch.load('model_stateV3', map_location=torch.device('cpu')))
+    #model.load_state_dict(torch.load('model_stateV3', map_location=torch.device('cpu')))
 
-    #model.load_state_dict(torch.load('/content/model_stateV3'))
+    model.load_state_dict(torch.load('/content/model_stateV3'))
 
     # Get dataloader
     dataset = Dataset(
@@ -1604,8 +1604,8 @@ if __name__ == "__main__":
                 #torch.save(model.state_dict(), f"checkpoints/yolov3_ckpt_epoch-%d_MAP-%.2f.pth" % (epoch, AP.mean()))
                 max_mAP = AP.mean()
 
-torch.save(model.state_dict(),'model_stateV4')
-torch.save(model, 'entire_modelV4')
+torch.save(model.state_dict(),'model_statefinal')
+torch.save(model, 'entire_modelfinal')
 
 """# Testing
 
